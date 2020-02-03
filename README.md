@@ -1,0 +1,3 @@
+# Baphomet
+
+A discord bot.
