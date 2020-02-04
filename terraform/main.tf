@@ -94,6 +94,7 @@ resource "azurerm_app_service" "baphomet" {
     PREFIX = "!"
     PUID = 0
     GUID = 0
+    DOCKER_ENABLE_CI = true
   }
 }
 
