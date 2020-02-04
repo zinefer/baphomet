@@ -7,8 +7,6 @@ script:
 
 deploy:
   provider: script
-  script:
-    - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-    - docker push zinefer/baphomet
+  script: bash deploy.sh
   on:
     branch: master
