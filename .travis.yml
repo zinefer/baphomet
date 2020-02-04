@@ -1,0 +1,14 @@
+dist: bionic
+
+language: minimal
+
+script:
+  - docker build -t zinefer/baphomet .
+
+deploy:
+  provider: script
+  script:
+    - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+    - docker push zinefer/baphomet
+  on:
+    branch: master

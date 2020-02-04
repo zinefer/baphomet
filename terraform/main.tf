@@ -92,6 +92,8 @@ resource "azurerm_app_service" "baphomet" {
   app_settings = {
     TOKEN = var.token
     PREFIX = "!"
+    PUID = 0
+    GUID = 0
   }
 }
 
