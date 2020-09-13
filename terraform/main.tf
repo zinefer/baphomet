@@ -38,7 +38,7 @@ resource "azurerm_storage_account" "baphomet" {
 }
 
 resource "azurerm_storage_share" "baphomet" {
-  name                 = "config"
+  name                 = "data"
   storage_account_name = azurerm_storage_account.baphomet.name
 }
 
@@ -75,14 +75,14 @@ resource "azurerm_app_service" "baphomet" {
     }
   }
 
-  /*storage_account {
-      name = "config"
+  storage_account {
+      name = "data"
       type = "AzureFiles"
       account_name = azurerm_storage_account.baphomet.name
       share_name = azurerm_storage_share.baphomet.name
       access_key = azurerm_storage_account.baphomet.primary_access_key
-      mount_path = "/config"
-  }*/
+      mount_path = "/data"
+  }
 
   site_config {
     always_on        = true
@@ -95,6 +95,8 @@ resource "azurerm_app_service" "baphomet" {
     PUID = 0
     GUID = 0
     DOCKER_ENABLE_CI = true
+    CONTAINER_AVAILABILITY_CHECK_MODE = "ReportOnly"
+    WEBSITES_ENABLE_APP_SERVICE_STORAGE = false
   }
 }
 
@@ -103,4 +105,3 @@ resource "azurerm_role_assignment" "baphomet" {
   role_definition_name = "Storage File Data SMB Share Contributor"
   principal_id         = azurerm_app_service.baphomet.identity[0].principal_id
 }
-
