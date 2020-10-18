@@ -1,3 +1,8 @@
+provider "azurerm" {
+  version = "~> 2.4.0" # https://github.com/terraform-providers/terraform-provider-azurerm/issues/1109
+  features {}
+}
+
 variable "token" {
   type = string
 }
@@ -19,7 +24,7 @@ locals {
 
 resource "azurerm_resource_group" "baphomet" {
   name     = local.app_name
-  location = "Central US"
+  location = "South Central US"
 }
 
 resource "azurerm_storage_account" "baphomet" {
