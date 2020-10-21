@@ -7,19 +7,30 @@ variable "token" {
   type = string
 }
 
-data "http" "icanhazip" {
-   url = "http://icanhazip.com"
-}
-
-resource "random_pet" "baphomet" {
-  length = 1
-}
+data "azurerm_client_config" "current" {}
 
 locals {
   app_name = "baphomet-bot"
-  qualified_app_name = "${local.app_name}-${random_pet.baphomet.id}"
-  qualified_app_name_clean = replace(local.qualified_app_name, "-", "")
-  my_ip = chomp(data.http.icanhazip.body)
+}
+
+# Render a part using a `template_file`
+data "template_file" "cloud_init" {
+  template = file("cloud-init.tpl")
+
+  vars = {
+    token = var.token
+  }
+}
+
+data "template_cloudinit_config" "baphomet" {
+  base64_encode = true
+
+  # Main cloud-config configuration file.
+  part {
+    filename     = "cloud-init.cfg"
+    content_type = "text/cloud-config"
+    content      = data.template_file.cloud_init.rendered
+  }
 }
 
 resource "azurerm_resource_group" "baphomet" {
@@ -27,86 +38,105 @@ resource "azurerm_resource_group" "baphomet" {
   location = "South Central US"
 }
 
-resource "azurerm_storage_account" "baphomet" {
-  name                     = local.qualified_app_name_clean
-  resource_group_name      = azurerm_resource_group.baphomet.name
-  location                 = azurerm_resource_group.baphomet.location
-  account_tier             = "Standard"
-  //account_tier             = "StorageV2"
-  account_replication_type = "LRS"
-
-  /*network_rules {
-      default_action = "Deny"
-      bypass   = ["AzureServices"]
-      ip_rules = [local.my_ip]
-  }*/
-}
-
-resource "azurerm_storage_share" "baphomet" {
-  name                 = "data"
-  storage_account_name = azurerm_storage_account.baphomet.name
-}
-
-resource "azurerm_app_service_plan" "baphomet" {
-  name                = "${local.app_name}-service"
+resource "azurerm_key_vault" "baphomet" {
+  name                = "${local.app_name}-kv"
   location            = azurerm_resource_group.baphomet.location
   resource_group_name = azurerm_resource_group.baphomet.name
+  
+  sku_name  = "standard"
+  tenant_id = data.azurerm_client_config.current.tenant_id
 
-  reserved = true
-  kind = "Linux"
+  access_policy {
+    tenant_id = data.azurerm_client_config.current.tenant_id
+    object_id = data.azurerm_client_config.current.object_id
 
-  sku {
-    tier = "Basic"
-    size = "B1"
+    key_permissions     = [ "list", "get", "create", "update", "delete" ]
+    secret_permissions  = [ "list", "get", "set", "delete" ]
   }
 }
 
-resource "azurerm_app_service" "baphomet" {
-  name                = local.qualified_app_name
+resource "azurerm_key_vault_secret" "baphomet" {
+  name         = "discord-token"
+  value        = var.token
+  key_vault_id = azurerm_key_vault.baphomet.id
+}
+
+resource "azurerm_virtual_network" "baphomet" {
+  name                = "${local.app_name}-network"
+  address_space       = ["10.0.0.0/16"]
   location            = azurerm_resource_group.baphomet.location
   resource_group_name = azurerm_resource_group.baphomet.name
-  app_service_plan_id = azurerm_app_service_plan.baphomet.id
+}
+
+resource "azurerm_subnet" "baphomet" {
+  name                 = "internal"
+  resource_group_name  = azurerm_resource_group.baphomet.name
+  virtual_network_name = azurerm_virtual_network.baphomet.name
+  address_prefix       = "10.0.2.0/24"
+}
+
+resource "azurerm_public_ip" "baphomet" {
+  name                    = "baphomet-debug"
+  location                = azurerm_resource_group.baphomet.location
+  resource_group_name     = azurerm_resource_group.baphomet.name
+  allocation_method       = "Dynamic"
+  idle_timeout_in_minutes = 30
+}
+
+resource "azurerm_network_interface" "baphomet" {
+  name                = "${local.app_name}-nic"
+  location            = azurerm_resource_group.baphomet.location
+  resource_group_name = azurerm_resource_group.baphomet.name
+
+  ip_configuration {
+    name                          = "ipconf"
+    subnet_id                     = azurerm_subnet.baphomet.id
+    private_ip_address_allocation = "Dynamic"
+    public_ip_address_id          = azurerm_public_ip.baphomet.id
+  }
+}
+
+resource "azurerm_linux_virtual_machine" "baphomet" {
+  name                = "${local.app_name}-vm"
+  resource_group_name = azurerm_resource_group.baphomet.name
+  location            = azurerm_resource_group.baphomet.location
+  size                = "Standard_B1S"
+  
+  custom_data = data.template_cloudinit_config.baphomet.rendered
+  
+  admin_username      = "adminuser"
+  admin_ssh_key {
+    username   = "adminuser"
+    public_key = file("~/.ssh/id_rsa.pub")
+  }
+
+  network_interface_ids = [
+    azurerm_network_interface.baphomet.id,
+  ]
 
   identity {
     type = "SystemAssigned"
   }
 
-  logs {
-    http_logs {
-      file_system {
-        retention_in_days = 7
-        retention_in_mb   = 100
-      }
-    }
+  os_disk {
+    caching              = "ReadWrite"
+    storage_account_type = "Standard_LRS"
   }
 
-  storage_account {
-      name = "data"
-      type = "AzureFiles"
-      account_name = azurerm_storage_account.baphomet.name
-      share_name = azurerm_storage_share.baphomet.name
-      access_key = azurerm_storage_account.baphomet.primary_access_key
-      mount_path = "/data"
-  }
-
-  site_config {
-    always_on        = true
-    linux_fx_version = "DOCKER|zinefer/baphomet:latest"
-  }
-
-  app_settings = {
-    TOKEN = var.token
-    PREFIX = "!"
-    PUID = 0
-    GUID = 0
-    DOCKER_ENABLE_CI = true
-    CONTAINER_AVAILABILITY_CHECK_MODE = "ReportOnly"
-    WEBSITES_ENABLE_APP_SERVICE_STORAGE = false
+  source_image_reference {
+    publisher = "Canonical"
+    offer     = "UbuntuServer"
+    sku       = "18.04-LTS"
+    version   = "latest"
   }
 }
 
-resource "azurerm_role_assignment" "baphomet" {
-  scope                = azurerm_storage_account.baphomet.id
-  role_definition_name = "Storage File Data SMB Share Contributor"
-  principal_id         = azurerm_app_service.baphomet.identity[0].principal_id
+resource "azurerm_key_vault_access_policy" "baphomet" {
+  key_vault_id = azurerm_key_vault.baphomet.id
+
+  tenant_id = data.azurerm_client_config.current.tenant_id
+  object_id = azurerm_linux_virtual_machine.baphomet.identity.0.principal_id
+
+  key_permissions    = [ "get" ]
+  secret_permissions = [ "get" ]
 }

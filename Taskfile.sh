@@ -4,10 +4,8 @@ function provision {
     terraform apply -var-file=azure-deploy.tfvars terraform
 }
 
-function roll-storage {
-    # This deletes the app service
-    terraform destroy -var-file=azure-deploy.tfvars \
-        -target azurerm_storage_account.baphomet terraform
+function destroy {
+    terraform destroy -var-file=azure-deploy.tfvars terraform
 }
 
 function build {
